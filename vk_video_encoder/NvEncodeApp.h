@@ -27,6 +27,7 @@
 #include "nvh/fileoperations.hpp"
 #include "nvh/inputparser.h"
 #include "mio/mio.hpp"
+#undef min // for windows
 
 
 #define NON_VCL_BITSTREAM_OFFSET 4096
@@ -104,26 +105,26 @@ protected:
     VkVideoEncodeInfoKHR m_encodeInfo;
 };
 
-class EncodeInfoNonVcl : public EncodeInfo {
-public:
-    EncodeInfoNonVcl(StdVideoH264SequenceParameterSet* sps, StdVideoH264PictureParameterSet* pps, VkBuffer* dstBitstreamBuffer)
-        : m_emitParameters{}
-    {
-        m_emitParameters.sType = VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_EMIT_PICTURE_PARAMETERS_INFO_EXT;
-        m_emitParameters.pNext = NULL;
-        m_emitParameters.spsId = sps->seq_parameter_set_id;
-        m_emitParameters.emitSpsEnable = VK_TRUE;
-        m_emitParameters.ppsIdEntryCount = 1;
-        m_emitParameters.ppsIdEntries = &pps->pic_parameter_set_id;
-
-        memset(&m_encodeInfo, 0, sizeof(m_encodeInfo));
-        m_encodeInfo.sType = VK_STRUCTURE_TYPE_VIDEO_ENCODE_INFO_KHR;
-        m_encodeInfo.pNext = &m_emitParameters;
-        m_encodeInfo.dstBitstreamBuffer = *dstBitstreamBuffer;
-    }
-private:
-    VkVideoEncodeH264EmitPictureParametersInfoEXT m_emitParameters;
-};
+//class EncodeInfoNonVcl : public EncodeInfo {
+//public:
+//    EncodeInfoNonVcl(StdVideoH264SequenceParameterSet* sps, StdVideoH264PictureParameterSet* pps, VkBuffer* dstBitstreamBuffer)
+//        : m_emitParameters{}
+//    {
+//        m_emitParameters.sType = VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_EMIT_PICTURE_PARAMETERS_INFO_EXT;
+//        m_emitParameters.pNext = NULL;
+//        m_emitParameters.spsId = sps->seq_parameter_set_id;
+//        m_emitParameters.emitSpsEnable = VK_TRUE;
+//        m_emitParameters.ppsIdEntryCount = 1;
+//        m_emitParameters.ppsIdEntries = &pps->pic_parameter_set_id;
+//
+//        memset(&m_encodeInfo, 0, sizeof(m_encodeInfo));
+//        m_encodeInfo.sType = VK_STRUCTURE_TYPE_VIDEO_ENCODE_INFO_KHR;
+//        m_encodeInfo.pNext = &m_emitParameters;
+//        m_encodeInfo.dstBuffer = *dstBitstreamBuffer;
+//    }
+//private:
+//    VkVideoEncodeH264EmitPictureParametersInfoEXT m_emitParameters;
+//};
 
 class EncodeInfoVcl : public EncodeInfo {
 public:
@@ -140,8 +141,8 @@ public:
         m_encodeInfo.sType = VK_STRUCTURE_TYPE_VIDEO_ENCODE_INFO_KHR;
         m_encodeInfo.pNext = encodeH264FrameInfo;
         m_encodeInfo.qualityLevel = 0;
-        m_encodeInfo.dstBitstreamBuffer = *dstBitstreamBuffer;
-        m_encodeInfo.dstBitstreamBufferOffset = dstBitstreamBufferOffset;
+        m_encodeInfo.dstBuffer = *dstBitstreamBuffer;
+        m_encodeInfo.dstBufferOffset = dstBitstreamBufferOffset;
         m_encodeInfo.srcPictureResource = *inputPicResource;
         m_encodeInfo.pSetupReferenceSlot = &m_referenceSlot;
     }

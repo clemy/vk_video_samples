@@ -19,10 +19,14 @@
 
 VkResult NvPictureBuffer::createVideoQueries(uint32_t numSlots, nvvk::Context* deviceInfo, const VkVideoProfileInfoKHR* pEncodeProfile)
 {
+    VkQueryPoolVideoEncodeFeedbackCreateInfoKHR queryPoolVideoEncodeFeedbackCreateInfo = { VK_STRUCTURE_TYPE_QUERY_POOL_VIDEO_ENCODE_FEEDBACK_CREATE_INFO_KHR };
+    queryPoolVideoEncodeFeedbackCreateInfo.encodeFeedbackFlags = VK_VIDEO_ENCODE_FEEDBACK_BITSTREAM_BUFFER_OFFSET_BIT_KHR | VK_VIDEO_ENCODE_FEEDBACK_BITSTREAM_BYTES_WRITTEN_BIT_KHR;
+    queryPoolVideoEncodeFeedbackCreateInfo.pNext = pEncodeProfile;
+
     VkQueryPoolCreateInfo queryPoolCreateInfo = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
-    queryPoolCreateInfo.queryType = VK_QUERY_TYPE_VIDEO_ENCODE_BITSTREAM_BUFFER_RANGE_KHR;
+    queryPoolCreateInfo.queryType = VK_QUERY_TYPE_VIDEO_ENCODE_FEEDBACK_KHR;
     queryPoolCreateInfo.queryCount = numSlots * 2;
-    queryPoolCreateInfo.pNext = pEncodeProfile;
+    queryPoolCreateInfo.pNext = &queryPoolVideoEncodeFeedbackCreateInfo;
 
     return vkCreateQueryPool(deviceInfo->m_device, &queryPoolCreateInfo, NULL, &m_queryPool);
 }

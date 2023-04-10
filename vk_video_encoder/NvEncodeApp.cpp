@@ -321,7 +321,7 @@ IntraFrameInfo::IntraFrameInfo(uint32_t frameCount, uint32_t width, uint32_t hei
 
     m_sliceInfo.sType = VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_NALU_SLICE_INFO_EXT;
     m_sliceInfo.pNext = NULL;
-    m_sliceInfo.pSliceHeaderStd = &m_sliceHeader;
+    m_sliceInfo.pStdSliceHeader = &m_sliceHeader;
     m_sliceInfo.mbCount = iPicSizeInMbs;
 
     if (isIdr) {
@@ -346,7 +346,7 @@ IntraFrameInfo::IntraFrameInfo(uint32_t frameCount, uint32_t width, uint32_t hei
     m_encodeH264FrameInfo.pNext = NULL;
     m_encodeH264FrameInfo.naluSliceEntryCount = 1;
     m_encodeH264FrameInfo.pNaluSliceEntries = &m_sliceInfo;
-    m_encodeH264FrameInfo.pCurrentPictureInfo = &m_stdPictureInfo;
+    m_encodeH264FrameInfo.pStdPictureInfo = &m_stdPictureInfo;
 }
 
 VideoSessionParametersInfo::VideoSessionParametersInfo(VkVideoSessionKHR videoSession, StdVideoH264SequenceParameterSet* sps, StdVideoH264PictureParameterSet* pps)
@@ -591,14 +591,28 @@ int32_t EncodeApp::initRateControl(VkCommandBuffer cmdBuf, uint32_t qp)
     encodeH264RateControlLayerInfo.useMaxQp = VK_TRUE;
     encodeH264RateControlLayerInfo.maxQp = encodeH264Qp;
     encodeH264RateControlLayerInfo.useMaxFrameSize = VK_TRUE;
-    encodeH264RateControlLayerInfo.maxFrameSize = encodeH264FrameSize; 
+    encodeH264RateControlLayerInfo.maxFrameSize = encodeH264FrameSize;
+    encodeH264RateControlLayerInfo.temporalLayerId = 0;
 
     VkVideoEncodeRateControlLayerInfoKHR encodeRateControlLayerInfo = {VK_STRUCTURE_TYPE_VIDEO_ENCODE_RATE_CONTROL_LAYER_INFO_KHR};
     encodeRateControlLayerInfo.pNext = &encodeH264RateControlLayerInfo;
 
+    VkVideoEncodeH264RateControlInfoEXT encodeH264RateControlInfo = { VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_RATE_CONTROL_INFO_EXT };
+    encodeH264RateControlInfo.gopFrameCount = UINT32_MAX;
+    encodeH264RateControlInfo.idrPeriod = UINT32_MAX;
+    encodeH264RateControlInfo.consecutiveBFrameCount = 0;
+    encodeH264RateControlInfo.temporalLayerCount = 1;
+    encodeH264RateControlInfo.rateControlStructure = VK_VIDEO_ENCODE_H264_RATE_CONTROL_STRUCTURE_UNKNOWN_EXT;
+
+    VkVideoEncodeRateControlInfoKHR encodeRateControlInfo = { VK_STRUCTURE_TYPE_VIDEO_ENCODE_RATE_CONTROL_INFO_KHR };
+    encodeRateControlInfo.rateControlMode = VK_VIDEO_ENCODE_RATE_CONTROL_MODE_DISABLED_BIT_KHR;
+    encodeRateControlInfo.pNext = &encodeH264RateControlInfo;
+    encodeRateControlInfo.layerCount = 1;
+    encodeRateControlInfo.pLayers = &encodeRateControlLayerInfo;
+
     VkVideoCodingControlInfoKHR codingControlInfo = {VK_STRUCTURE_TYPE_VIDEO_CODING_CONTROL_INFO_KHR};
-    codingControlInfo.flags = VK_VIDEO_CODING_CONTROL_RESET_BIT_KHR;
-    codingControlInfo.pNext = &encodeRateControlLayerInfo;
+    codingControlInfo.flags = VK_VIDEO_CODING_CONTROL_RESET_BIT_KHR | VK_VIDEO_CODING_CONTROL_ENCODE_RATE_CONTROL_BIT_KHR;
+    codingControlInfo.pNext = &encodeRateControlInfo;
 
     VkVideoEndCodingInfoKHR encodeEndInfo = {VK_STRUCTURE_TYPE_VIDEO_END_CODING_INFO_KHR};
 
@@ -682,18 +696,18 @@ int32_t EncodeApp::encodeFrame(EncodeConfig* encodeConfig, uint32_t frameCount, 
     vkCmdBeginVideoCodingKHR(cmdBuf, &encodeBeginInfo);
 
     uint32_t bitstreamOffset = 0; // necessary non zero value for first frame
-    if(nonVcl) {
-        // Encode Non VCL data - SPS and PPS
-        EncodeInfoNonVcl encodeInfoNonVcl(&m_videoSessionParameters.m_sequenceParameterSet,
-                                          &m_videoSessionParameters.m_pictureParameterSet,
-                                          &outBitstream);
-        VkVideoEncodeInfoKHR* videoEncodeInfoNonVcl = encodeInfoNonVcl.getVideoEncodeInfo();
-        vkCmdResetQueryPool(cmdBuf, queryPool, querySlotIdNonVCL, 1);
-        vkCmdBeginQuery(cmdBuf, queryPool, querySlotIdNonVCL, VkQueryControlFlags());
-        vkCmdEncodeVideoKHR(cmdBuf, videoEncodeInfoNonVcl);
-        vkCmdEndQuery(cmdBuf, queryPool, querySlotIdNonVCL);
-        bitstreamOffset = NON_VCL_BITSTREAM_OFFSET; // use 4k for first frame and then update with size of last frame
-    }
+    //if(nonVcl) {
+    //    // Encode Non VCL data - SPS and PPS
+    //    EncodeInfoNonVcl encodeInfoNonVcl(&m_videoSessionParameters.m_sequenceParameterSet,
+    //                                      &m_videoSessionParameters.m_pictureParameterSet,
+    //                                      &outBitstream);
+    //    VkVideoEncodeInfoKHR* videoEncodeInfoNonVcl = encodeInfoNonVcl.getVideoEncodeInfo();
+    //    vkCmdResetQueryPool(cmdBuf, queryPool, querySlotIdNonVCL, 1);
+    //    vkCmdBeginQuery(cmdBuf, queryPool, querySlotIdNonVCL, VkQueryControlFlags());
+    //    vkCmdEncodeVideoKHR(cmdBuf, videoEncodeInfoNonVcl);
+    //    vkCmdEndQuery(cmdBuf, queryPool, querySlotIdNonVCL);
+    //    bitstreamOffset = NON_VCL_BITSTREAM_OFFSET; // use 4k for first frame and then update with size of last frame
+    //}
     // Encode Frame
     // encode info for vkCmdEncodeVideoKHR
     IntraFrameInfo intraFrameInfo(frameCount, encodeConfig->width, encodeConfig->height,
@@ -785,17 +799,29 @@ int32_t EncodeApp::assembleBitstreamData(EncodeConfig* encodeConfig, bool nonVcl
     VkQueryPool queryPool = m_pictureBuffer.getQueryPool();
 
     uint32_t bitstreamOffset = 0; // necessary non zero value for first frame
-    if(nonVcl) {
-        // only on frame 0
-        bitstreamOffset = NON_VCL_BITSTREAM_OFFSET;
-        uint32_t querySlotIdNonVCL = currentFrameBufferIdx + INPUT_FRAME_BUFFER_SIZE;
-        result = vkGetQueryPoolResults(m_ctx.m_device, queryPool, querySlotIdNonVCL, 1, sizeof(nvVideoEncodeStatus),
-                                       &encodeResult[1], sizeof(nvVideoEncodeStatus), VK_QUERY_RESULT_WITH_STATUS_BIT_KHR | VK_QUERY_RESULT_WAIT_BIT);
-        if(result != VK_SUCCESS) {
-            fprintf(stderr, "\nRetrieveData Error: Failed to get non vcl query pool results.\n");
-            return -1;
-        }
-        fwrite(data + encodeResult[1].bitstreamStartOffset, 1, encodeResult[1].bitstreamSize, encodeConfig->outputVid);
+    //if(nonVcl) {
+    //    // only on frame 0
+    //    bitstreamOffset = NON_VCL_BITSTREAM_OFFSET;
+    //    uint32_t querySlotIdNonVCL = currentFrameBufferIdx + INPUT_FRAME_BUFFER_SIZE;
+    //    result = vkGetQueryPoolResults(m_ctx.m_device, queryPool, querySlotIdNonVCL, 1, sizeof(nvVideoEncodeStatus),
+    //                                   &encodeResult[1], sizeof(nvVideoEncodeStatus), VK_QUERY_RESULT_WITH_STATUS_BIT_KHR | VK_QUERY_RESULT_WAIT_BIT);
+    //    if(result != VK_SUCCESS) {
+    //        fprintf(stderr, "\nRetrieveData Error: Failed to get non vcl query pool results.\n");
+    //        return -1;
+    //    }
+    //    fwrite(data + encodeResult[1].bitstreamStartOffset, 1, encodeResult[1].bitstreamSize, encodeConfig->outputVid);
+    //}
+    if (nonVcl) {
+        // Hardcoded for 352x288, 25 fps
+        // need to implement an encoder for SPS and PPS or use an external one
+        const uint8_t sps[] =
+            { 0x00, 0x00, 0x00, 0x01, 0x67, 0x64, 0x00, 0x29, 0xac, 0xca, 0x81, 0x60, 0x96, 0x40 };
+        fwrite(sps, 1, sizeof(sps), encodeConfig->outputVid);
+
+        const uint8_t pps[] =
+            { 0x00, 0x00, 0x00, 0x01, 0x68, 0xee, 0x3c, 0xb0 };
+        fwrite(pps, 1, sizeof(pps), encodeConfig->outputVid);
+
     }
 
     uint32_t querySlotIdVCL = currentFrameBufferIdx;
